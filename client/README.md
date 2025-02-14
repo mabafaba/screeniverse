@@ -9,4 +9,4 @@ npm install
 node server.js
 ```
 
-runs at `localhost:5733`
+runs at `localhost:5733/screeniverse`

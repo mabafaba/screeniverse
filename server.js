@@ -17,12 +17,6 @@ app.get('/screeniverse', (req, res) => {
     res.sendFile(__dirname + '/client/screens.html');
 });
 
-app.use('/screeniverse/wipe', (req, res) => {
-    cameraViews = [];
-    // redirect to screens.html
-    res.redirect('/screeniverse');
-});
-
 // serve static files
 app.use('/screeniverse',express.static('client'));
 
