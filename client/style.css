@@ -1,0 +1,61 @@
+#defaultCamera {
+    position: fixed;
+    top: 0;
+    left: 0;
+    cursor: pointer;
+    z-index: 3;
+}
+body, html {
+    margin: 0;
+    padding: 0;
+    background-color: #000;
+}
+
+#controls {
+    opacity: 0.1;
+    transition: opacity 0.1s ease;
+}
+
+#controls:hover {
+    opacity: 1;
+}
+
+#wipeViewsButton {
+    position: fixed;
+    top: 0px;
+    color:red;
+    left: 100px;
+    cursor: pointer;
+    z-index: 3;
+}
+/* float view buttons right */
+.viewButtonContainer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height:30px;
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    z-index: 2;
+
+}
+
+.viewButton {
+    margin: 2px;
+    padding: 2px;
+    margin-top:0px;
+    height:20px;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+/* keep canvas at 20px from top */
+canvas {
+    position: fixed;
+    top: 20px;
+    left: 0;
+}

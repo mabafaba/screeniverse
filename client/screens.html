@@ -1,0 +1,432 @@
+<!-- 
+
+This HTML file sets up a p5.js instance mode sketch with socket.io integration for real-time communication. It includes the following sections:
+
+1. Dependencies:
+    - p5.js: A JavaScript library for creative coding.
+    - socket.io: A library for real-time server-client communication.
+
+2. JavaScript:
+    - p5.js standard sketch functions (see www.p5js.org):
+        - setup(): Initializes the canvas, sets up event listeners, and stores the default camera view.
+        - draw(): Main draw loop that updates and renders the scene, including lighting, line drawing, and camera views.
+
+    - Classes:
+        - LineDrawing: Manages user-drawn lines on the canvas.
+        - ViewPoint: Represents a user as a blue circle at the center of the canvas.
+        - CameraViews: Manages camera views based on the relationship between the viewpoint and drawn lines.
+
+    - Global variables:
+        - currentView: Tracks the current camera view index.
+        - isTopView: Boolean flag indicating if the top view is active.
+        - cameraViews: Instance of CameraViews class.
+        - viewPoint: Instance of ViewPoint class.
+        - lineDrawing: Instance of LineDrawing class.
+        - socket: Socket.io client instance.
+
+    - socketio event:
+        - 'synchWithMe' & 'synchMeWithOthers': Synchronize clients with each other by sending frame count and camera views.
+        - 'newCameraView': Shares new camera views between clients.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>p5.js Instance Mode Sketch</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <!-- socket.io -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+
+    <!-- style css file -->
+    <link rel="stylesheet" href="/screeniverse/style.css">
+     
+</head>
+<body>
+    <div id="controls">
+    <button id="defaultCamera">Top View</button>
+    <button id="wipeViewsButton" onclick="wipeAllViews()">Wipe All Views</button>
+    <div class="viewButtonContainer"> </div>
+    </div>
+    <script>
+
+        
+        var sketch = function(p) {
+            let myFont;
+            p.preload = function() {
+                myFont = p.loadFont('http://fonts.gstatic.com/s/roboto/v15/dtpHsbgPEm2lVWciJZ0P-A.ttf');
+                };
+        
+            p.setup = function() {
+                p.createCanvas(p.windowWidth, p.windowHeight-20, p.WEBGL);
+                p.background(0);
+                p.textFont(myFont);
+                lineDrawing.onLineEnd = (line) => {
+                    cameraViews.addCameraView(p, viewPoint, line);
+                    socket.emit('newCameraView', {viewPoint, line});
+                };
+
+                socket.on('newCameraView', (msg) => {
+                    cameraViews.addCameraView(p, msg.viewPoint, msg.line);
+                });
+                // wait 1 sec
+                setTimeout(() => {
+                    cameraViews.storeDefaultCameraView(p);
+                }, 1000);
+                
+
+
+
+            // set button to use default camera view
+            document.getElementById('defaultCamera').onclick = (event) => {
+                cameraViews.useDefaultCameraView(p);
+            };
+
+            // listen for synchWithMe messages
+            socket.on('synchWithMe', (message) => {
+                console.log('synchWithMe', message);
+                synchMeWithOthers(message, p);
+            });
+
+
+            };
+
+            p.draw = function() {
+                // light
+                p.ambientLight(100);
+                p.directionalLight(255, 255, 255, 0, 0, -1);
+                p.pointLight(255, 255, 255, p.width / 2, p.height / 2, 200);
+                p.shininess(20);
+
+                p.background(0);
+                lineDrawing.update(p);
+                lineDrawing.draw(p);
+                viewPoint.draw(p);
+                cameraViews.draw(p);
+
+                // bunch of cubes
+
+                // every second, ask the server to synch with me
+                if(p.frameCount % 60 === 0){
+                    synchOthersWithMe(p);
+                }
+
+                // draw a circle of boxes in rainbow colors
+                const numBoxes = 10;
+
+                for (let i = 0; i < numBoxes; i++) {
+                    p.push();
+                    p.rotateZ(p.TWO_PI / numBoxes * i);
+                    p.translate(100, 0, 0);
+                    p.rotateZ(i * 0.05);
+                    p.rotateY(i);
+                    p.colorMode(p.HSB);
+                    p.fill(255 * (i / numBoxes), 255 * ((numBoxes - i) / numBoxes),255);
+                    // boxes rotating 
+                    p.rotateX(p.frameCount * 0.01);
+                    // box size changing sin i
+                    p.box(20 + 10 * p.sin(i));
+
+                    
+
+                    p.pop();
+                }
+
+            };
+
+
+            p.mousePressed = function() {
+            // if outside visible area, return
+            if(!isTopView){
+                return;
+            }
+            if(p.mouseX < 0 || p.mouseX > p.width || p.mouseY < 0 || p.mouseY > p.height){
+                return;
+            }
+            console.log('mouse pressed');
+            
+
+            // if not already drawing a line, start drawing a new line
+            if(!lineDrawing.isDrawing){
+                console.log('start drawing');
+                lineDrawing.startDrawing(mouseX_webgl(p.mouseX, p.width), mouseY_webgl(p.mouseY, p.height));
+            }
+            else {
+                console.log('end drawing');
+                lineDrawing.endDrawing(mouseX_webgl(p.mouseX, p.width), mouseY_webgl(p.mouseY, p.height));
+            }
+        }
+
+        p.keyPressed = function() {
+                if(p.key='f'){
+                    console.log('f');
+                    synchOthersWithMe(p);
+
+                }
+                if (p.key === ' ') {
+                    currentView = 0;
+                    useDefaultCameraView(p);
+                    return;
+                } else if (p.keyCode === p.LEFT_ARROW || p.keyCode === p.RIGHT_ARROW) {
+                    
+                    // set currentview
+                    if(p.keyCode === p.LEFT_ARROW){
+                        var futureView = currentView - 1;
+                        if(futureView < 0){
+                            futureView = cameraViews.cameraViews.length - 1;
+                        }
+                        currentView = futureView;
+                    }
+                    else if(p.keyCode === p.RIGHT_ARROW){
+                        var futureView = currentView + 1;
+                        if(futureView >= cameraViews.cameraViews.length){
+                            futureView = 0;
+                        }
+                        currentView = futureView;
+                    }
+                    console.log('set view', cameraViews.cameraViews[currentView].lookAt.x, cameraViews.cameraViews[currentView].lookAt.y);
+                    useCameraView(p, cameraViews.cameraViews[currentView]);
+                    isTopView = false;
+                }
+            };
+                    
+        };
+
+        mouseX_webgl = function(x, width){
+            return x - width / 2;
+        }
+        mouseY_webgl = function(y, height){
+            return y - height / 2;
+        }
+
+        class LineDrawing{
+            // handles user drawing lines on the canvas
+            // keeps track if a a line is being drawn, and the start and end points of the line
+            // displays the line on the canvas
+            constructor(){
+                this.isDrawing = false;
+                this.lines = [];
+                this.start = null;
+                this.end = null;
+                this.onLineEnd = (line) => {}; // set this as callback 
+            }
+
+            startDrawing(x, y){
+                console.log('start drawing');
+                this.isDrawing = true;
+                this.start = {x: x, y: y};
+                this.end = {x: x, y: y};
+
+            }
+
+            endDrawing(x, y){
+                console.log('end drawing');
+                this.isDrawing = false;
+                this.end.x = x;
+                this.end.y = y;
+                this.lines.push(this.getLine());
+                this.onLineEnd(this.getLine());
+            }
+
+            draw(p){
+                if(this.isDrawing){
+                    p.stroke(255,0,0);
+                    p.line(this.start.x, this.start.y, this.end.x, this.end.y);
+                    // ellipse at start point and end point
+                    p.fill(255);
+                    p.stroke(255);
+                    p.ellipse(this.start.x, this.start.y, 5, 5);
+                }
+            }
+
+            update(p){
+                // if drawing, update the end point of the line
+                if(this.isDrawing){
+                    this.end.x = mouseX_webgl(p.mouseX, p.width);
+                    this.end.y = mouseY_webgl(p.mouseY, p.height);
+                }
+
+
+
+            }
+
+            getLine(){
+                return {start: this.start, end: this.end};
+            }
+        }
+
+
+        class ViewPoint{
+            // displays a 'user' who is shown as a blue circle
+            // it is at the center of the canvas
+            constructor(){
+                this.x = 0;
+                this.y = 0;
+            }
+
+            draw(p){
+                p.fill(0,0,255);
+                p.noStroke();
+                p.ellipse(this.x, this.y, 10, 10);
+            }
+        }
+
+
+        class CameraViews {
+            // keeps track of camera views, defined by the relationship between the viewpoint and drawn lines
+
+            constructor(){
+            this.cameraViews = [];
+            this.defaultCamera = null;
+            }
+
+            addCameraView(p, viewPoint, line){
+            console.log('adding camera view');
+
+            // calculate the angle between the viewpoint and the line to determine the camera's field of view
+            var angle = p.atan2(line.start.y - viewPoint.y, line.start.x - viewPoint.x) - p.atan2(line.end.y - viewPoint.y, line.end.x - viewPoint.x);
+            angle = p.abs(angle); // ensure the angle is positive
+            console.log('angle', angle);
+
+            // create a camera view object with position, lookAt, zoom, and angle properties
+            const cameraView = {
+                position: { x: viewPoint.x, y: viewPoint.y, z: 0 },
+                lookAt: {
+                x: (line.start.x + line.end.x) / 2,
+                y: (line.start.y + line.end.y) / 2,
+                z: 0
+                },
+                zoom: 1 / (Math.sqrt(((line.start.x + line.end.x) / 2 - viewPoint.x) ** 2 + ((line.start.y + line.end.y) / 2 - viewPoint.y) ** 2) + Math.sqrt((line.end.x - line.start.x) ** 2 + (line.end.y - line.start.y) ** 2)),
+                angle: angle,
+                line: line,
+                upX: 0,
+                upY: 0,
+                upZ: -1,
+            };
+            console.log('zoom', cameraView.zoom);
+            cameraView.fov = angle; // set the field of view to the calculated angle
+            this.cameraViews.push(cameraView); // add the new camera view to the list
+
+            // create a button for switching to this camera view and add it to the HTML
+            const button = document.createElement('button');
+            button.innerHTML = 'View ' + this.cameraViews.length;
+            button.className = 'viewButton';
+            button.onclick = () => {
+                cameraViews.useCameraView(p, cameraView);
+            };
+            document.querySelector('.viewButtonContainer').appendChild(button);
+            }
+
+            storeDefaultCameraView(p){
+            // store the default camera view for resetting the view later
+            const cam = p.createCamera();
+            console.log('cam', cam);
+            this.defaultCamera = {
+                position: { x: cam.eyeX, y: cam.eyeY, z: cam.eyeZ },
+                lookAt: { x: cam.centerX, y: cam.centerY, z: cam.centerZ },
+                zoom: cam._scalar,
+                upX: cam.upX,
+                upY: cam.upY,
+                upZ: cam.upZ,
+                fov: cam._renderer._curCamera.fov
+            };
+            }
+
+            draw(p){
+            // draw all the camera views as triangles on the canvas
+            this.cameraViews.forEach(cameraView => {
+                p.fill(255,0,0, 150);
+                p.triangle(cameraView.position.x, cameraView.position.y, cameraView.line.start.x, cameraView.line.start.y, cameraView.line.end.x, cameraView.line.end.y);    
+
+                p.fill(255);
+                const midX = (cameraView.position.x + cameraView.line.start.x + cameraView.line.end.x) / 3;
+                const midY = (cameraView.position.y + cameraView.line.start.y + cameraView.line.end.y) / 3;
+                p.text(this.cameraViews.indexOf(cameraView) + 1, midX, midY); // label the camera view with its index
+            });
+            }
+
+            useCameraView(p, cameraView) {
+            isTopView = false; // indicate that the top view is not active
+            const cam = p.createCamera();
+
+            // set the camera's position and orientation based on the selected camera view
+            cam.camera(cameraView.position.x, cameraView.position.y, cameraView.position.z, cameraView.lookAt.x, cameraView.lookAt.y, cameraView.lookAt.z,
+            cameraView.upX, cameraView.upY, cameraView.upZ);
+            cam.lookAt(cameraView.lookAt.x, cameraView.lookAt.y, cameraView.lookAt.z);
+
+            cam.perspective(cameraView.fov); // set the field of view
+            cam.zoom = cameraView.zoom; // set the zoom level
+            }
+
+            useDefaultCameraView(p) {
+            currentView = 0; // reset the current view index
+            isTopView = true; // indicate that the top view is active
+            const cam = p.createCamera();
+            cam.setPosition(cameraViews.defaultCamera.position.x, cameraViews.defaultCamera.position.y, cameraViews.defaultCamera.position.z);
+            cam.lookAt(cameraViews.defaultCamera.lookAt.x, cameraViews.defaultCamera.lookAt.y, cameraViews.defaultCamera.lookAt.z);
+            cam.zoom = cameraViews.defaultCamera.zoom; // reset the zoom level
+            cam.perspective(cameraViews.defaultCamera.fov); // reset the field of view
+            }
+        }
+
+
+    currentView = 0;
+    isTopView = true;
+    var cameraViews = new CameraViews();
+    var viewPoint = new ViewPoint();
+    var lineDrawing = new LineDrawing();
+    new p5(sketch);
+
+    // Sync clients with each other
+
+    var socket = io({
+        path: '/screeniverse-socket-io'
+    });
+
+    socket.on('connect', function() {
+        console.log('Connected to server');
+    });
+
+
+    socket.on('disconnect', function() {
+        console.log('Disconnected from server');
+    });
+
+    function synchOthersWithMe(p){
+            // send frame count and camera views to server
+            const timeStamp = Date.now();
+            const frameRate = p.frameRate();
+            // console.log('emit synchWithMe', p.frameCount, timeStamp, frameRate);
+            socket.emit('synchWithMe', {
+            frameCount: p.frameCount,
+            timeStamp: timeStamp,
+            frameRate: frameRate,
+            });
+        }
+
+        function synchMeWithOthers(message, p){
+            console.log('synchMeWithOthers', message);  
+            const currentTime = Date.now();
+            // how many seconds passed since the message was sent?
+            const secondsPassed = (currentTime - message.timeStamp) / 1000;
+            // what frame would sender be on now?
+            const senderFrame = message.frameCount + secondsPassed * message.frameRate;
+            // set frame count to sender frame
+            p.frameCount = senderFrame;
+
+        }
+        function wipeAllViews() {
+           // emit wipeAllViews to server
+              socket.emit('wipeAllViews');
+              cameraViews.cameraViews = [];
+              
+        }
+
+        // listen for wipeAllViews messages
+        socket.on('wipeAllViews', (message) => {
+            console.log('wipeAllViews', message);
+            cameraViews.cameraViews = [];
+        });
+    </script>
+</body>
+</html>
